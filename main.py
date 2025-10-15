@@ -2,7 +2,7 @@ import telebot
 from telebot import types
 # import config
 
-bot = telebot.TeleBot('7885508312:AAGre_hONkbvNlLVYPJ-tp3j9uDvJgqpmJ0')
+bot = telebot.TeleBot('8453465834:AAEdzYPmtmjayAtTfhitVaiiA3aBtELRDQY')
 
 
 @bot.message_handler(commands=['start'])
@@ -12,7 +12,7 @@ def start(message):
     btn2 = types.KeyboardButton("Задать вопрос ❓")
     markup.add(btn1, btn2)
     bot.send_message(message.chat.id,
-                     text="Привет, {0.first_name}! Я тестовый бот для твоей статьи для habr.com".format(
+                     text="Привет, {0.first_name}! Я Telegram бот для парсинга IT статей".format(
                          message.from_user), reply_markup=markup)
 
 
@@ -22,16 +22,16 @@ def func(message):
         bot.send_message(message.chat.id, text="Привеет.. Спасибо что читаешь статью!)")
     elif message.text == "Задать вопрос ❓":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        btn1 = types.KeyboardButton("Как меня зовут?")
+        btn1 = types.KeyboardButton("Статья")
         btn2 = types.KeyboardButton("Что я могу?")
         back = types.KeyboardButton("Вернуться в главное меню")
         markup.add(btn1, btn2, back)
         bot.send_message(message.chat.id, text="Задай мне вопрос", reply_markup=markup)
     elif message.text == "Как меня зовут?":
-        bot.send_message(message.chat.id, "Меня зовут финансовый помощник")
+        bot.send_message(message.chat.id, "Меня зовут Parsing-Bot")
 
-    elif message.text == "Что я могу?":
-        bot.send_message(message.chat.id, text="Поздороваться с читателями")
+    elif message.text == "Статья":
+        bot.send_message(message.chat.id, text="Прочитать статью")
 
     elif message.text == "Вернуться в главное меню":
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
