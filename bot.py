@@ -4,6 +4,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from config import BOT_TOKEN
 from parser import ITProgerParser
 import html
+import hashlib
 
 # Настройка логирования
 logging.basicConfig(
@@ -16,6 +17,11 @@ class ITProgerBot:
     def __init__(self):
         self.parser = ITProgerParser()
         self.user_data = {}  # Храним данные пользователей
+        self.article_cache = {}  # Кэш для статей
+
+    def _get_short_hash(self, url):
+        """Создает короткий хэш для URL"""
+        return hashlib.md5(url.encode()).hexdigest()[:10]
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
@@ -88,7 +94,7 @@ class ITProgerBot:
         user_id = update.effective_user.id
 
         # Сохраняем текущую страницу
-        self.user_data[user_id]['current_page'] = page
+        self.user_data[user_id] = {'current_page': page}
 
         # Получаем статьи
         articles = self.parser.get_articles(page)
@@ -99,11 +105,15 @@ class ITProgerBot:
             )
             return
 
+        # Сохраняем статьи в кэш
+        cache_key = f"{user_id}_{page}"
+        self.article_cache[cache_key] = articles
+
         # Инлайн клавиатура для навигации
         nav_buttons = []
         if page > 1:
-            nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prev_{page}"))
-        nav_buttons.append(InlineKeyboardButton("➡️ Вперед", callback_data=f"next_{page}"))
+            nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"p_{page - 1}"))
+        nav_buttons.append(InlineKeyboardButton("➡️ Вперед", callback_data=f"p_{page + 1}"))
 
         navigation = [nav_buttons] if nav_buttons else []
 
@@ -111,13 +121,19 @@ class ITProgerBot:
         for i, article in enumerate(articles, 1):
             message_text = self._format_article_message(article, i, page)
 
+            # Создаем короткий идентификатор для статьи
+            article_hash = self._get_short_hash(article['link'])
+
             # Кнопки для статьи
             article_buttons = [
                 [
-                    InlineKeyboardButton("📖 Полный текст", callback_data=f"full_{article['link']}"),
+                    InlineKeyboardButton("📖 Полный текст", callback_data=f"f_{article_hash}"),
                     InlineKeyboardButton("🔗 Открыть статью", url=article['link'])
                 ]
             ]
+
+            # Сохраняем ссылку по хэшу
+            self.article_cache[article_hash] = article['link']
 
             # Добавляем навигацию к последней статье
             if i == len(articles):
@@ -126,7 +142,7 @@ class ITProgerBot:
             reply_markup = InlineKeyboardMarkup(article_buttons)
 
             try:
-                if article['image_url']:
+                if article['image_url'] and article['image_url'].startswith('http'):
                     await update.message.reply_photo(
                         photo=article['image_url'],
                         caption=message_text,
@@ -141,6 +157,7 @@ class ITProgerBot:
                     )
             except Exception as e:
                 # Если не удалось отправить с фото, отправляем только текст
+                logging.error(f"Ошибка отправки фото: {e}")
                 await update.message.reply_text(
                     message_text,
                     reply_markup=reply_markup,
@@ -166,93 +183,97 @@ class ITProgerBot:
         await query.answer()
 
         data = query.data
+        user_id = query.from_user.id
 
-        if data.startswith('full_'):
+        if data.startswith('f_'):
             # Кнопка "Полный текст"
-            article_url = data[5:]
-            full_content = self.parser.get_full_content(article_url)
+            article_hash = data[2:]
+            article_url = self.article_cache.get(article_hash)
 
-            if full_content:
-                # Экранируем HTML символы для Markdown
-                content = html.escape(full_content)
-                message = f"📖 <b>Полное содержимое:</b>\n\n{content}"
+            if article_url:
+                full_content = self.parser.get_full_content(article_url)
+
+                if full_content and full_content != "Полное содержимое статьи недоступно":
+                    # Экранируем HTML символы
+                    content = html.escape(full_content)
+                    message = f"📖 <b>Полное содержимое:</b>\n\n{content}"
+                else:
+                    message = "⏳ <b>Скоро!</b>\n\nПолное содержимое статьи будет доступно в ближайшее время."
+
+                try:
+                    if query.message.caption:
+                        await query.edit_message_caption(
+                            caption=query.message.caption + f"\n\n{message}",
+                            parse_mode='HTML'
+                        )
+                    else:
+                        await query.edit_message_text(
+                            query.message.text + f"\n\n{message}",
+                            parse_mode='HTML'
+                        )
+                except Exception as e:
+                    logging.error(f"Ошибка редактирования сообщения: {e}")
+                    await query.message.reply_text(message, parse_mode='HTML')
             else:
-                message = "⏳ <b>Скоро!</b>\n\nПолное содержимое статьи будет доступно в ближайшее время."
+                await query.message.reply_text("❌ Статья не найдена")
 
-            await query.edit_message_caption(
-                caption=query.message.caption + f"\n\n{message}" if query.message.caption else message,
-                parse_mode='HTML'
-            )
-
-        elif data.startswith('next_'):
-            # Следующая страница
-            current_page = int(data[5:])
+        elif data.startswith('p_'):
+            # Навигация по страницам
+            page = int(data[2:])
             user_id = query.from_user.id
-            self.user_data[user_id] = {'current_page': current_page + 1}
+            self.user_data[user_id] = {'current_page': page}
 
-            articles = self.parser.get_articles(current_page + 1)
+            articles = self.parser.get_articles(page)
             if articles:
-                await self._edit_message_with_articles(query, articles, current_page + 1)
+                # Обновляем кэш
+                cache_key = f"{user_id}_{page}"
+                self.article_cache[cache_key] = articles
+
+                # Берем первую статью для отображения
+                article = articles[0]
+                message_text = self._format_article_message(article, 1, page)
+
+                # Создаем короткий идентификатор для статьи
+                article_hash = self._get_short_hash(article['link'])
+                self.article_cache[article_hash] = article['link']
+
+                # Кнопки для навигации
+                nav_buttons = []
+                if page > 1:
+                    nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"p_{page - 1}"))
+                nav_buttons.append(InlineKeyboardButton("➡️ Вперед", callback_data=f"p_{page + 1}"))
+
+                reply_markup = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("📖 Полный текст", callback_data=f"f_{article_hash}"),
+                        InlineKeyboardButton("🔗 Открыть статью", url=article['link'])
+                    ],
+                    nav_buttons
+                ])
+
+                try:
+                    if query.message.photo:
+                        await query.edit_message_caption(
+                            caption=message_text,
+                            reply_markup=reply_markup,
+                            parse_mode='HTML'
+                        )
+                    else:
+                        await query.edit_message_text(
+                            message_text,
+                            reply_markup=reply_markup,
+                            parse_mode='HTML'
+                        )
+                except Exception as e:
+                    logging.error(f"Ошибка редактирования: {e}")
+                    await query.message.reply_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
             else:
                 await query.edit_message_caption(
-                    caption="❌ Больше статей нет",
+                    caption="❌ Больше статей нет или страница не существует",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⬅️ Назад", callback_data=f"prev_{current_page}")]
-                    ])
+                        [InlineKeyboardButton("⬅️ Назад", callback_data=f"p_{page - 1}")]
+                    ]) if page > 1 else None
                 )
-
-        elif data.startswith('prev_'):
-            # Предыдущая страница
-            current_page = int(data[5:])
-            prev_page = max(1, current_page - 1)
-            user_id = query.from_user.id
-            self.user_data[user_id] = {'current_page': prev_page}
-
-            articles = self.parser.get_articles(prev_page)
-            await self._edit_message_with_articles(query, articles, prev_page)
-
-    async def _edit_message_with_articles(self, query, articles, page):
-        """Редактирует сообщение с новыми статьями"""
-        if not articles:
-            await query.edit_message_caption(
-                caption="❌ Не удалось загрузить статьи",
-                reply_markup=None
-            )
-            return
-
-        # Берем первую статью для отображения
-        article = articles[0]
-        message_text = self._format_article_message(article, 1, page)
-
-        # Кнопки для навигации
-        nav_buttons = []
-        if page > 1:
-            nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prev_{page}"))
-        nav_buttons.append(InlineKeyboardButton("➡️ Вперед", callback_data=f"next_{page}"))
-
-        reply_markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("📖 Полный текст", callback_data=f"full_{article['link']}"),
-                InlineKeyboardButton("🔗 Открыть статью", url=article['link'])
-            ],
-            nav_buttons
-        ])
-
-        try:
-            if query.message.photo:
-                await query.edit_message_caption(
-                    caption=message_text,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
-            else:
-                await query.edit_message_text(
-                    message_text,
-                    reply_markup=reply_markup,
-                    parse_mode='HTML'
-                )
-        except Exception as e:
-            logging.error(f"Ошибка редактирования сообщения: {e}")
 
     async def handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик текстовых сообщений"""
