@@ -179,7 +179,7 @@ class ParserConfig:
 ## ДОКУМЕНТАЦИЯ:
 - [Бизнес-требования](https://github.com/SonyaSpirs/Parsing-Bot/blob/main/Бизнес-требования)
 - [Системный анализ](https://github.com/SonyaSpirs/Parsing-Bot/blob/main/Системный%20анализ)
-- [План архитектуры.md](https://github.com/SonyaSpirs/Parsing-Bot/blob/main/План%20архитектуры.md)
+- [План архитектуры](https://github.com/SonyaSpirs/Parsing-Bot/blob/main/План%20архитектуры.md)
 
 🤝 Поддержка
 
