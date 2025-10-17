@@ -1,0 +1,46 @@
+graph TB
+    TG[Telegram API] --> TB[IT News Parser Bot]
+    TB --> BM[Bot Manager]
+    
+    BM --> HR[Handlers Registry]
+    BM --> SR[Services Registry]
+    
+    HR --> SH[Start Handler]
+    HR --> GH[Help Handler]
+    HR --> AH[Articles Handler]
+    HR --> LH[Callback Handler]
+    
+    SR --> PM[Parser Manager]
+    SR --> CM[Content Manager]
+    SR --> UM[User Manager]
+    
+    PM --> PS[Parser Service]
+    PM --> WS[Web Scraper]
+    
+    CM --> CF[Content Formatter]
+    CM --> AC[Article Cache]
+    
+    UM --> US[User Session]
+    UM --> KS[Keyboard Service]
+    
+    PS --> HP[HTML Parser]
+    PS --> RE[Request Engine]
+    
+    WS --> RH[Request Handler]
+    WS --> DP[Data Processor]
+    
+    CF --> MF[Markdown Formatter]
+    CF --> MS[Message Splitter]
+    
+    AC --> MC[Memory Cache]
+    AC --> FC[Fallback Content]
+    
+    US --> SM[State Machine]
+    US --> DM[Data Model]
+    
+    KS --> IK[Inline Keyboard]
+    KS --> RK[Reply Keyboard]
+    
+    style PM fill:#e1f5fe
+    style CM fill:#f3e5f5
+    style UM fill:#e8f5e8
